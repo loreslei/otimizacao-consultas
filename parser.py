@@ -89,6 +89,8 @@ def parse(tokens):
     i += 1
     tabela = tokens[i].valor
     i += 1
+    if i > (len(tokens) -1) or tokens[i].valor not in ["INNER", "WHERE",";"]:
+        raise Exception("Esperado 'INNER JOIN', 'WHERE' ou ';'")
 
     # INNER JOIN (opcional)
     joins = []
@@ -137,6 +139,8 @@ def parse(tokens):
                 "right": right
             }
         })
+    if i > (len(tokens) -1) or tokens[i].valor not in [ "WHERE",";"]:
+        raise Exception("Esperado 'WHERE' ou ';'")
 
     # WHERE (opcional) c suporte a ands
     where_condicoes = []
@@ -171,6 +175,8 @@ def parse(tokens):
                 i += 1
             else:
                 break
+    if i > (len(tokens) -1) or tokens[i].valor not in [ ";"]:
+        raise Exception("Esperado ';'")
 
     return {
         "SELECT": colunas,

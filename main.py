@@ -2,9 +2,9 @@ from parser import tokenize, parse
 
 if __name__ == "__main__":
     queries_para_testar = [
-        "SELECT id, nome FROM usuarios",
+        # "SELECT id, nome FROM usuarios;",
         
-        "SELECT nome FROM clientes WHERE idade >= 18 AND idade <= 20",
+        # "SELECT nome FROM clientes WHERE idade >= 18;",
         
         "SELECT u.nome, p.titulo FROM usuarios INNER JOIN posts ON u.id = p.user_id WHERE u.ativo = 1"
     ]
