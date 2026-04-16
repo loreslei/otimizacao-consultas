@@ -79,12 +79,24 @@ def parse(tokens,i):
     # SELECT
     i += 1
     colunas = []
-    while tokens[i].valor != "FROM":
-        if tokens[i].valor != ",":
+    
+    while i < len(tokens) and tokens[i].valor != "FROM":
+        if tokens[i].tipo == TokenType.IDENTIFIER:
             colunas.append(tokens[i].valor)
-            if tokens[i].valor not in [",", "FROM"]:
-                raise Exception("Esperado ',' ou 'FROM'")
-        i += 1
+            i += 1
+        else:
+            raise Exception(f"Esperado nome da coluna, mas encontrou: {tokens[i].valor}")
+
+        
+        if i < len(tokens):
+            if tokens[i].valor == ",":
+                i += 1
+                if tokens[i].valor == "FROM":
+                    raise Exception("Erro de sintaxe: vírgula extra antes do FROM")
+            elif tokens[i].valor == "FROM":
+                continue 
+            else:
+                raise Exception(f"Esperado ',' ou 'FROM', mas encontrou: {tokens[i].valor}")
 
     # FROM
     if tokens[i].valor != "FROM":
