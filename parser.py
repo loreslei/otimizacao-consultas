@@ -69,8 +69,9 @@ def tokenize(query):
 
     return tokens
 
-def parse(tokens):
-    i = 0
+def parse(tokens,i):
+   
+    inicio_query = i
 
     if tokens[i].valor != "SELECT":
         raise Exception("Esperado SELECT")
@@ -81,6 +82,8 @@ def parse(tokens):
     while tokens[i].valor != "FROM":
         if tokens[i].valor != ",":
             colunas.append(tokens[i].valor)
+            if tokens[i].valor not in [",", "FROM"]:
+                raise Exception("Esperado ',' ou 'FROM'")
         i += 1
 
     # FROM
@@ -89,6 +92,8 @@ def parse(tokens):
     i += 1
     tabela = tokens[i].valor
     i += 1
+    if i > (len(tokens) -1) or tokens[i].valor not in ["INNER", "WHERE",";"]:
+        raise Exception("Esperado 'INNER JOIN', 'WHERE' ou ';'")
 
     # INNER JOIN (opcional)
     joins = []
@@ -137,6 +142,8 @@ def parse(tokens):
                 "right": right
             }
         })
+    if i > (len(tokens) -1) or tokens[i].valor not in [ "WHERE",";"]:
+        raise Exception("Esperado 'WHERE' ou ';'")
 
     # WHERE (opcional) c suporte a ands
     where_condicoes = []
@@ -171,11 +178,30 @@ def parse(tokens):
                 i += 1
             else:
                 break
+    
 
-    return {
+    if i > (len(tokens) -1) or tokens[i].valor not in [ ";"]:
+        raise Exception("Esperado ';'")
+    i += 1 # Pula o ";" para estar pronto para a próxima query
+    trecho_original = " ".join([t.valor for t in tokens[inicio_query:i]])
+
+    query_data = {
+        "QUERY_ORIGINAL": trecho_original,
         "SELECT": colunas,
         "FROM": tabela,
         "INNER JOIN": joins,
         "WHERE": where_condicoes if where_condicoes else None
     }
 
+    return query_data, i
+
+
+def parse_multiplas_queries(tokens):
+    todas_as_queries = []
+    i = 0
+    while i < len(tokens):
+        # Chamamos a lógica de parse e pegamos o objeto e onde ele parou
+        resultado, proximo_i = parse(tokens, i)
+        todas_as_queries.append(resultado)
+        i = proximo_i
+    return todas_as_queries
