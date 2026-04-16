@@ -82,6 +82,8 @@ def parse(tokens,i):
     while tokens[i].valor != "FROM":
         if tokens[i].valor != ",":
             colunas.append(tokens[i].valor)
+            if tokens[i].valor not in [",", "FROM"]:
+                raise Exception("Esperado ',' ou 'FROM'")
         i += 1
 
     # FROM
