@@ -1,3 +1,4 @@
+import networkx as nx
 class TokenType:
     KEYWORD = "KEYWORD"
     IDENTIFIER = "IDENTIFIER"
@@ -217,3 +218,87 @@ def parse_multiplas_queries(tokens):
         todas_as_queries.append(resultado)
         i = proximo_i
     return todas_as_queries
+
+# def validar_schema(lista_de_queries, schema_bd):
+#     # Cria um mapa de busca rápida: {'nome_tabela': ['coluna1', 'coluna2']}
+#     bd_map = {t["name"]: [c["name"] for c in t["columns"]] for t in schema_bd["tables"]}
+    
+#     for idx, query in enumerate(lista_de_queries):
+#         # 1. Validar Tabela Principal (FROM)
+#         tabela_principal = query.get("FROM")
+#         if tabela_principal not in bd_map:
+#             raise Exception(f"Query {idx+1}: Tabela '{tabela_principal}' não existe.")
+
+#         # 2. Validar Colunas do SELECT
+#         for coluna in query.get("SELECT", []):
+#             if coluna not in bd_map[tabela_principal]:
+#                 raise Exception(f"Query {idx+1}: Coluna '{coluna}' não existe na tabela '{tabela_principal}'.")
+
+#         # 3. Validar INNER JOINs
+#         for join in query.get("INNER JOIN", []):
+#             # Extração de dados Left e Right
+#             try:
+#                 tab_l, col_l = join['on']['left'].split('.')
+#                 tab_r, col_r = join['on']['right'].split('.')
+#             except ValueError:
+#                 raise Exception(f"Query {idx+1}: Formato de JOIN inválido. Use 'tabela.coluna'.")
+
+#             # Validação Left
+#             if tab_l not in bd_map:
+#                 raise Exception(f"JOIN: Tabela '{tab_l}' não existe.")
+#             if col_l not in bd_map[tab_l]:
+#                 raise Exception(f"JOIN: Coluna '{col_l}' não existe em '{tab_l}'.")
+
+#             # Validação Right
+#             if tab_r not in bd_map:
+#                 raise Exception(f"JOIN: Tabela '{tab_r}' não existe.")
+#             if col_r not in bd_map[tab_r]:
+#                 raise Exception(f"JOIN: Coluna '{col_r}' não existe em '{tab_r}'.")
+
+
+def validar_e_gerar_grafos(lista_queries, banco_dados):
+    # Criar mapa para busca rápida O(1)
+    bd_map = {t["name"]: [c["name"] for c in t["columns"]] for t in banco_dados["tables"]}
+    
+    for idx, query in enumerate(lista_queries):
+
+        
+        # Validação FROM
+        if query["FROM"] not in bd_map:
+            raise Exception(f"Tabela '{query['FROM']}' não existe no BD.")
+        
+        # Iniciar Grafo
+        G = nx.DiGraph()
+        tabela_base = query["FROM"]
+        G.add_node(tabela_base)
+        ultimo_no = tabela_base
+
+        # Processar JOINS
+        for join in query["INNER JOIN"]:
+            tab_j = join["table"]
+            if tab_j not in bd_map:
+                raise Exception(f"Tabela JOIN '{tab_j}' não existe.")
+            
+            # Validação das colunas do ON
+            # Pegando o que vem depois do ponto
+            col_l = join['on']['left'].split('.')[1] 
+            col_r = join['on']['right'].split('.')[1]
+            
+            no_join = f"JOIN({tab_j})"
+            G.add_node(tab_j)
+            G.add_edge(ultimo_no, no_join)
+            G.add_edge(tab_j, no_join)
+            ultimo_no = no_join
+
+        # Processar WHERE
+        if query["WHERE"]:
+            conds = " ".join([f"{c['left']}{c['op']}{c['right']}" if isinstance(c, dict) else str(c) for c in query["WHERE"]])
+            no_where = f"WHERE({conds})"
+            G.add_edge(ultimo_no, no_where)
+            ultimo_no = no_where
+
+        # Processar SELECT
+        no_select = f"SELECT({', '.join(query['SELECT'])})"
+        G.add_edge(ultimo_no, no_select)
+        
+        print(f"✅ Query {idx+1} validada. Fluxo: {' -> '.join(G.nodes)}")
