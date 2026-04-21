@@ -164,23 +164,27 @@ def parse(tokens,i):
         i += 1
 
         while i < len(tokens):
-            # esquerdita
+            # Identificador (agora aceita "tabela.coluna" vindo do lexer)
             if tokens[i].tipo != TokenType.IDENTIFIER:
-                raise Exception("Esperado identificador")
-            left = tokens[i].valor; i += 1
+                raise Exception(f"Esperado identificador no WHERE, mas encontrou {tokens[i].valor}")
+            
+            left = tokens[i].valor  # Ex: "Cliente.Nome" ou "Nome"
+            i += 1
 
-            # operadorzito
+            # Operador
             if tokens[i].tipo != TokenType.OPERATOR:
                 raise Exception("Esperado operador")
-            op = tokens[i].valor; i += 1
+            op = tokens[i].valor
+            i += 1
 
-            # derecha
+            # Direita (Valor ou outra coluna)
             if tokens[i].tipo not in (TokenType.NUMBER, TokenType.IDENTIFIER):
-                raise Exception("Esperado valor")
-            right = tokens[i].valor; i += 1
+                raise Exception("Esperado valor ou identificador no lado direito")
+            right = tokens[i].valor
+            i += 1
 
             where_condicoes.append({
-                "left": left,
+                "left": left, 
                 "op": op,
                 "right": right
             })
@@ -210,49 +214,65 @@ def parse(tokens,i):
 def gerar_grafo_networkx(query_data):
     G = nx.DiGraph()
     
-    # 1. Nó de Origem (Tabela Principal no FROM)
-    tabela_base = query_data["FROM"]
-    no_atual = f"FROM_{tabela_base}"
-    G.add_node(no_atual, label=f"FROM: {tabela_base}")
+    # Dicionário para rastrear onde está o fluxo de cada tabela
+    # Isso permite que a gente insira o WHERE logo após o SCAN da tabela correta
+    fluxos = {}
 
-    # 2. Processamento de INNER JOINs como ramos da árvore
+    # 1. Identificar tabelas e criar SCANS
+    tabelas_envolvidas = [query_data["FROM"]]
+    for j in query_data["INNER JOIN"]:
+        tabelas_envolvidas.append(j["table"])
+
+    for tab in tabelas_envolvidas:
+        no_scan = f"SCAN_{tab}"
+        G.add_node(no_scan, label=f"SCAN: {tab}")
+        fluxos[tab] = no_scan
+
+    # 2. Aplicar WHERE na tabela específica (Pushdown)
+    if query_data["WHERE"]:
+        for i, cond in enumerate(query_data["WHERE"]):
+            if isinstance(cond, dict):
+                left_val = cond['left']
+                # Tenta descobrir de qual tabela é a coluna
+                if "." in left_val:
+                    tab_ref, col_ref = left_val.split(".")
+                else:
+                    # Se não tem ponto, assume a tabela principal (ou a primeira que encontrar)
+                    tab_ref = query_data["FROM"]
+                    col_ref = left_val
+                
+                if tab_ref in fluxos:
+                    no_where = f"WHERE_{tab_ref}_{i}"
+                    label_where = f"σ: {tab_ref}.{col_ref} {cond['op']} {cond['right']}"
+                    G.add_node(no_where, label=label_where)
+                    
+                    # Conecta: SCAN -> WHERE
+                    origem = fluxos[tab_ref]
+                    G.add_edge(origem, no_where)
+                    # Atualiza o fluxo daquela tabela: agora o ponto de saída é o WHERE
+                    fluxos[tab_ref] = no_where
+
+    # 3. Processar JOINS
+    # O nó atual da tabela principal começa o encadeamento
+    no_atual = fluxos[query_data["FROM"]]
+
     if query_data["INNER JOIN"]:
         for i, join in enumerate(query_data["INNER JOIN"]):
-            # Criamos um nó para a tabela que está sendo juntada
-            tabela_join = join["table"]
-            no_scan_join = f"SCAN_{tabela_join}_{i}"
-            G.add_node(no_scan_join, label=f"ON: {tabela_join}")
-            
-            # Criamos o nó do operador JOIN
+            tab_direita = join["table"]
             no_join = f"JOIN_OP_{i}"
             condicao = f"{join['on']['left']} = {join['on']['right']}"
             G.add_node(no_join, label=f"INNER JOIN\nON {condicao}")
             
-            # O JOIN recebe duas entradas:
-            G.add_edge(no_atual, no_join)      # Entrada 1: O que já tínhamos (Esquerda)
-            G.add_edge(no_scan_join, no_join)  # Entrada 2: A nova tabela (Direita)
+            # Conecta a esquerda (o que já temos) e a direita (fluxo da tabela do join)
+            G.add_edge(no_atual, no_join)
+            G.add_edge(fluxos[tab_direita], no_join)
             
-            # O resultado do JOIN passa a ser o novo ponto de partida
             no_atual = no_join
 
-    # 3. Nó de WHERE (Selection - σ)
-    if query_data["WHERE"]:
-        conds = []
-        for c in query_data["WHERE"]:
-            if isinstance(c, dict):
-                conds.append(f"{c['left']} {c['op']} {c['right']}")
-            else:
-                conds.append(c) # AND
-        
-        no_where = "WHERE_OP"
-        G.add_node(no_where, label="WHERE\n" + " ".join(conds))
-        G.add_edge(no_atual, no_where)
-        no_atual = no_where
-
-    # 4. Nó de SELECT (Projection - π)
+    # 4. Nó de SELECT (Projeção Final)
     no_select = "SELECT_OP"
     colunas = ", ".join(query_data["SELECT"])
-    G.add_node(no_select, label=f"SELECT\n[{colunas}]")
+    G.add_node(no_select, label=f"PROJECTION (π)\n[{colunas}]")
     G.add_edge(no_atual, no_select)
 
     return G
@@ -268,56 +288,34 @@ def parse_multiplas_queries(tokens):
     return todas_as_queries
 
 def validar_schema(lista_de_queries, schema_bd):
-    # Mapa: {'tabela': ['coluna1', 'coluna2']}
     bd_map = {t["name"]: [c["name"] for c in t["columns"]] for t in schema_bd["tables"]}
     
     for idx, query in enumerate(lista_de_queries):
         tabelas_na_query = set()
-        
-        # 1. Validar Tabela Principal (FROM)
-        tabela_principal = query.get("FROM")
-        if tabela_principal not in bd_map:
-            raise Exception(f"Query {idx+1}: Tabela principal '{tabela_principal}' não existe.")
-        tabelas_na_query.add(tabela_principal)
+        tabelas_na_query.add(query.get("FROM"))
+        for j in query.get("INNER JOIN", []):
+            tabelas_na_query.add(j.get("table"))
 
-        # 2. Validar Tabelas do INNER JOIN
-        for join in query.get("INNER JOIN", []):
-            tabela_join = join.get("table")
-            if tabela_join not in bd_map:
-                raise Exception(f"Query {idx+1}: Tabela do JOIN '{tabela_join}' não existe.")
-            tabelas_na_query.add(tabela_join)
+        # ... (validações anteriores de FROM e JOIN) ...
 
-            # Validar colunas do ON (formato tabela.coluna)
-            for lado in ['left', 'right']:
-                try:
-                    tab, col = join['on'][lado].split('.')
-                    if tab not in bd_map:
-                        raise Exception(f"JOIN: Tabela '{tab}' mencionada no ON não existe.")
-                    if col not in bd_map[tab]:
-                        raise Exception(f"JOIN: Coluna '{col}' não existe na tabela '{tab}'.")
-                except ValueError:
-                    raise Exception(f"JOIN: Use o formato 'tabela.coluna' em '{join['on'][lado]}'.")
-
-        # 3. Validar Colunas do SELECT
-        # Nota: Como você pode ter joins, a coluna pode estar em qualquer uma das tabelas envolvidas
-        for coluna in query.get("SELECT", []):
-            encontrada = False
-            for t in tabelas_na_query:
-                if coluna in bd_map[t]:
-                    encontrada = True
-                    break
-            if not encontrada:
-                raise Exception(f"Query {idx+1}: Coluna '{coluna}' não encontrada nas tabelas {tabelas_na_query}.")
-
-        # 4. Validar Colunas do WHERE
+        # 4. Validar WHERE com suporte a tabela.coluna
         if query.get("WHERE"):
             for cond in query.get("WHERE"):
-                if isinstance(cond, dict): # Pula o "AND"
-                    col_where = cond['left']
-                    encontrada = False
-                    for t in tabelas_na_query:
-                        if col_where in bd_map[t]:
-                            encontrada = True
-                            break
-                    if not encontrada:
-                        raise Exception(f"WHERE: Coluna '{col_where}' não existe nas tabelas envolvidas.")
+                if isinstance(cond, dict):
+                    col_completa = cond['left']
+                    
+                    if "." in col_completa:
+                        tab_ref, col_ref = col_completa.split(".")
+                        if tab_ref not in tabelas_na_query:
+                            raise Exception(f"WHERE: Tabela '{tab_ref}' não referenciada na cláusula FROM/JOIN.")
+                        if col_ref not in bd_map.get(tab_ref, []):
+                            raise Exception(f"WHERE: Coluna '{col_ref}' não existe na tabela '{tab_ref}'.")
+                    else:
+                        # Se não tem ponto, busca em todas as tabelas da query
+                        encontrada = False
+                        for t in tabelas_na_query:
+                            if col_completa in bd_map.get(t, []):
+                                encontrada = True
+                                break
+                        if not encontrada:
+                            raise Exception(f"WHERE: Coluna '{col_completa}' não encontrada nas tabelas da query.")

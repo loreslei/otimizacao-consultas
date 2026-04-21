@@ -8,7 +8,7 @@ if __name__ == "__main__":
     queries_para_testar = (
         "SELECT idCategoria FROM Categoria;"
         "SELECT Nome FROM Produto WHERE idProduto = 2;"
-        "SELECT Nome, Email FROM Cliente INNER JOIN TipoCliente ON Cliente.TipoCliente_idTipoCliente = TipoCliente.idTipoCliente WHERE TipoCliente.idTipoCliente = 2;"
+        "SELECT Nome, Email FROM Cliente INNER JOIN TipoCliente ON Cliente.TipoCliente_idTipoCliente = TipoCliente.idTipoCliente WHERE Cliente.TipoCliente_idTipoCliente = 2;"
     )
 
     try:
