@@ -287,35 +287,76 @@ def parse_multiplas_queries(tokens):
         i = proximo_i
     return todas_as_queries
 
+
 def validar_schema(lista_de_queries, schema_bd):
+    # Mapa de busca rápida: {'nome_tabela': ['coluna1', 'coluna2']}
     bd_map = {t["name"]: [c["name"] for c in t["columns"]] for t in schema_bd["tables"]}
-    
+   
     for idx, query in enumerate(lista_de_queries):
         tabelas_na_query = set()
-        tabelas_na_query.add(query.get("FROM"))
-        for j in query.get("INNER JOIN", []):
-            tabelas_na_query.add(j.get("table"))
+       
+        # 1. Validar Tabela Principal (FROM)
+        tabela_principal = query.get("FROM")
+        if tabela_principal not in bd_map:
+            raise Exception(f"Query {idx+1}: Tabela principal '{tabela_principal}' não existe.")
+        tabelas_na_query.add(tabela_principal)
 
-        # ... (validações anteriores de FROM e JOIN) ...
+        # 2. Validar INNER JOINs
+        for join in query.get("INNER JOIN", []):
+            # --- CORREÇÃO: Verifica se a tabela do JOIN existe ---
+            tabela_join = join.get("table")
+            if tabela_join not in bd_map:
+                raise Exception(f"Query {idx+1}: Tabela do JOIN '{tabela_join}' não existe no banco de dados.")
+            tabelas_na_query.add(tabela_join)
 
-        # 4. Validar WHERE com suporte a tabela.coluna
+            # Validar as colunas da condição ON (tabela.coluna)
+            for lado in ['left', 'right']:
+                val_on = join['on'][lado]
+                if "." not in val_on:
+                    raise Exception(f"JOIN: Formato inválido em '{val_on}'. Use 'tabela.coluna'.")
+               
+                tab_on, col_on = val_on.split('.')
+               
+                # Verifica se a tabela citada no ON está nas tabelas da query
+                if tab_on not in bd_map:
+                    raise Exception(f"JOIN: Tabela '{tab_on}' referenciada no ON não existe.")
+               
+                # Verifica se a coluna existe naquela tabela específica
+                if col_on not in bd_map[tab_on]:
+                    raise Exception(f"JOIN: Coluna '{col_on}' não existe na tabela '{tab_on}'.")
+
+        # 3. Validar Colunas do SELECT
+        for coluna in query.get("SELECT", []):
+            encontrada = False
+            if "." in coluna:
+                t_ref, c_ref = coluna.split(".")
+                if t_ref in bd_map and c_ref in bd_map[t_ref]:
+                    encontrada = True
+            else:
+                for t in tabelas_na_query:
+                    if coluna in bd_map[t]:
+                        encontrada = True
+                        break
+            if not encontrada:
+                raise Exception(f"SELECT: Coluna '{coluna}' não encontrada nas tabelas {tabelas_na_query}.")
+
+        # 4. Validar WHERE (com suporte a Pushdown no Grafo)
         if query.get("WHERE"):
             for cond in query.get("WHERE"):
                 if isinstance(cond, dict):
                     col_completa = cond['left']
-                    
+                   
                     if "." in col_completa:
                         tab_ref, col_ref = col_completa.split(".")
                         if tab_ref not in tabelas_na_query:
-                            raise Exception(f"WHERE: Tabela '{tab_ref}' não referenciada na cláusula FROM/JOIN.")
+                            raise Exception(f"WHERE: Tabela '{tab_ref}' não referenciada na query.")
                         if col_ref not in bd_map.get(tab_ref, []):
-                            raise Exception(f"WHERE: Coluna '{col_ref}' não existe na tabela '{tab_ref}'.")
+                            raise Exception(f"WHERE: Coluna '{col_ref}' não existe em '{tab_ref}'.")
                     else:
-                        # Se não tem ponto, busca em todas as tabelas da query
                         encontrada = False
                         for t in tabelas_na_query:
                             if col_completa in bd_map.get(t, []):
                                 encontrada = True
                                 break
                         if not encontrada:
-                            raise Exception(f"WHERE: Coluna '{col_completa}' não encontrada nas tabelas da query.")
+                            raise Exception(f"WHERE: Coluna '{col_completa}' não encontrada.")
