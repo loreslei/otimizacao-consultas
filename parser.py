@@ -128,31 +128,16 @@ def parse(tokens,i):
             raise Exception("Esperado ON")
         i += 1
 
-        # # Idificador da esquerda
-        # if tokens[i].tipo != TokenType.IDENTIFIER:
-        #     raise Exception("Esperado identificador no JOIN")
-        # left = tokens[i].valor
-        # i += 1
 
         if "." not in tokens[i].valor:
             raise Exception(f"JOIN exige formato 'tabela.coluna' em: {tokens[i].valor}")
         t_left, c_left = tokens[i].valor.split(".")
         i += 1
 
-        # Operador
-        # if tokens[i].tipo != TokenType.OPERATOR or tokens[i].valor != "=":
-        #     raise Exception("JOIN deve usar operador '='")
-        # op = tokens[i].valor
-        # i += 1
 
         op_join = tokens[i].valor
         i += 1
 
-        # Identificador da direita
-        # if tokens[i].tipo != TokenType.IDENTIFIER:
-        #     raise Exception("Esperado identificador no JOIN")
-        # right = tokens[i].valor
-        # i += 1
         if "." not in tokens[i].valor:
             raise Exception(f"JOIN exige formato 'tabela.coluna' em: {tokens[i].valor}")
         t_right, c_right = tokens[i].valor.split(".")
@@ -179,30 +164,6 @@ def parse(tokens,i):
 
         while i < len(tokens):
            
-            # if tokens[i].tipo != TokenType.IDENTIFIER:
-            #     raise Exception(f"Esperado identificador no WHERE, mas encontrou {tokens[i].valor}")
-            
-            # left = tokens[i].valor  # Ex: "Cliente.Nome" ou "Nome"
-            # i += 1
-
-            # # Operador
-            # if tokens[i].tipo != TokenType.OPERATOR:
-            #     raise Exception("Esperado operador")
-            # op = tokens[i].valor
-            # i += 1
-
-            # # Direita (Valor ou outra coluna)
-            # if tokens[i].tipo not in (TokenType.NUMBER, TokenType.IDENTIFIER):
-            #     raise Exception("Esperado valor ou identificador no lado direito")
-            # right = tokens[i].valor
-            # i += 1
-
-            # where_condicoes.append({
-            #     "left": left, 
-            #     "op": op,
-            #     "right": right
-            # })
-
             left_val = tokens[i].valor
             if "." in left_val:
                 t_where, c_where = left_val.split(".")
@@ -381,20 +342,6 @@ def validar_schema(lista_de_queries, schema_bd):
                 raise Exception(f"Query {idx+1}: Tabela do JOIN '{tabela_join}' não existe no banco de dados.")
             tabelas_na_query.add(tabela_join)
 
-            # for lado in ['left', 'right']:
-            #     val_on = join['on'][lado]
-            #     if "." not in val_on:
-            #         raise Exception(f"JOIN: Formato inválido em '{val_on}'. Use 'tabela.coluna'.")
-               
-            #     tab_on, col_on = val_on.split('.')
-               
-            #     # Verifica se a tabela citada no ON está nas tabelas da query
-            #     if tab_on not in bd_map:
-            #         raise Exception(f"JOIN: Tabela '{tab_on}' referenciada no ON não existe.")
-               
-            #     # Verifica se a coluna existe naquela tabela específica
-            #     if col_on not in bd_map[tab_on]:
-            #         raise Exception(f"JOIN: Coluna '{col_on}' não existe na tabela '{tab_on}'.")
             
             # Validação dos pares tabela/coluna no ON
             on_cond = join['on']
@@ -415,11 +362,7 @@ def validar_schema(lista_de_queries, schema_bd):
         # 3. Validar Colunas do SELECT
         for coluna in query.get("SELECT", []):
             encontrada = False
-            # if "." in coluna:
-            #     t_ref, c_ref = coluna.split(".")
-            #     if t_ref in bd_map and c_ref in bd_map[t_ref]:
-            #         encontrada = True
-            # else:
+
             for t in tabelas_na_query:
                 if coluna in bd_map[t]:
                     encontrada = True
@@ -431,20 +374,7 @@ def validar_schema(lista_de_queries, schema_bd):
         if query.get("WHERE"):
             for cond in query.get("WHERE"):
                 if isinstance(cond, dict):
-                #     col_completa = cond['left']
-                   
-                #     if "." in col_completa:
-                #         tab_ref, col_ref = col_completa.split(".")
-                #         if tab_ref not in tabelas_na_query:
-                #             raise Exception(f"WHERE: Tabela '{tab_ref}' não referenciada na query.")
-                #         if col_ref not in bd_map.get(tab_ref, []):
-                #             raise Exception(f"WHERE: Coluna '{col_ref}' não existe em '{tab_ref}'.")
-                #     else:
-                #         encontrada = False
-                #         for t in tabelas_na_query:
-                #             if col_completa in bd_map.get(t, []):
-                #                 encontrada = True
-                #                 break
+               
                     tab_ref = cond.get('tabela')
                     col_ref = cond.get('coluna')
                     
