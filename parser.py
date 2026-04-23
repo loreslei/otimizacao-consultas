@@ -219,15 +219,10 @@ def gerar_grafo_networkx(query_data, schema_bd):
 
     # 1. Mapear colunas do SELECT para suas respectivas tabelas
     for col in query_data.get("SELECT", []):
-        if "." in col:
-            tab, c = col.split(".")
-            if tab in colunas_por_tabela:
-                colunas_por_tabela[tab].add(c)
-        else:
-            for tab in tabelas_na_query:
-                if col in bd_map.get(tab, []):
-                    colunas_por_tabela[tab].add(col)
-                    break
+        for tab in tabelas_na_query:
+            if col in bd_map.get(tab, []):
+                colunas_por_tabela[tab].add(col)
+                break
 
     # 2. Mapear colunas do WHERE para suas respectivas tabelas
     if query_data.get("WHERE"):
