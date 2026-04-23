@@ -128,30 +128,44 @@ def parse(tokens,i):
             raise Exception("Esperado ON")
         i += 1
 
-        # Idificador da esquerda
-        if tokens[i].tipo != TokenType.IDENTIFIER:
-            raise Exception("Esperado identificador no JOIN")
-        left = tokens[i].valor
+        # # Idificador da esquerda
+        # if tokens[i].tipo != TokenType.IDENTIFIER:
+        #     raise Exception("Esperado identificador no JOIN")
+        # left = tokens[i].valor
+        # i += 1
+
+        if "." not in tokens[i].valor:
+            raise Exception(f"JOIN exige formato 'tabela.coluna' em: {tokens[i].valor}")
+        t_left, c_left = tokens[i].valor.split(".")
         i += 1
 
         # Operador
-        if tokens[i].tipo != TokenType.OPERATOR or tokens[i].valor != "=":
-            raise Exception("JOIN deve usar operador '='")
-        op = tokens[i].valor
+        # if tokens[i].tipo != TokenType.OPERATOR or tokens[i].valor != "=":
+        #     raise Exception("JOIN deve usar operador '='")
+        # op = tokens[i].valor
+        # i += 1
+
+        op_join = tokens[i].valor
         i += 1
 
         # Identificador da direita
-        if tokens[i].tipo != TokenType.IDENTIFIER:
-            raise Exception("Esperado identificador no JOIN")
-        right = tokens[i].valor
+        # if tokens[i].tipo != TokenType.IDENTIFIER:
+        #     raise Exception("Esperado identificador no JOIN")
+        # right = tokens[i].valor
+        # i += 1
+        if "." not in tokens[i].valor:
+            raise Exception(f"JOIN exige formato 'tabela.coluna' em: {tokens[i].valor}")
+        t_right, c_right = tokens[i].valor.split(".")
         i += 1
 
         joins.append({
             "table": table,
             "on": {
-                "left": left,
-                "op": op,
-                "right": right
+                "tabela_left": t_left,
+                "coluna_left": c_left,
+                "op": op_join,
+                "tabela_right": t_right,
+                "coluna_right": c_right
             }
         })
     if i > (len(tokens) -1) or tokens[i].valor not in [ "WHERE",";"]:
@@ -164,29 +178,48 @@ def parse(tokens,i):
         i += 1
 
         while i < len(tokens):
-            # Identificador (agora aceita "tabela.coluna" vindo do lexer)
-            if tokens[i].tipo != TokenType.IDENTIFIER:
-                raise Exception(f"Esperado identificador no WHERE, mas encontrou {tokens[i].valor}")
+           
+            # if tokens[i].tipo != TokenType.IDENTIFIER:
+            #     raise Exception(f"Esperado identificador no WHERE, mas encontrou {tokens[i].valor}")
             
-            left = tokens[i].valor  # Ex: "Cliente.Nome" ou "Nome"
-            i += 1
+            # left = tokens[i].valor  # Ex: "Cliente.Nome" ou "Nome"
+            # i += 1
 
-            # Operador
-            if tokens[i].tipo != TokenType.OPERATOR:
-                raise Exception("Esperado operador")
-            op = tokens[i].valor
-            i += 1
+            # # Operador
+            # if tokens[i].tipo != TokenType.OPERATOR:
+            #     raise Exception("Esperado operador")
+            # op = tokens[i].valor
+            # i += 1
 
-            # Direita (Valor ou outra coluna)
-            if tokens[i].tipo not in (TokenType.NUMBER, TokenType.IDENTIFIER):
-                raise Exception("Esperado valor ou identificador no lado direito")
-            right = tokens[i].valor
+            # # Direita (Valor ou outra coluna)
+            # if tokens[i].tipo not in (TokenType.NUMBER, TokenType.IDENTIFIER):
+            #     raise Exception("Esperado valor ou identificador no lado direito")
+            # right = tokens[i].valor
+            # i += 1
+
+            # where_condicoes.append({
+            #     "left": left, 
+            #     "op": op,
+            #     "right": right
+            # })
+
+            left_val = tokens[i].valor
+            if "." in left_val:
+                t_where, c_where = left_val.split(".")
+            else:
+                t_where, c_where = None, left_val # Será inferido na validação
+            
+            i += 1
+            op_where = tokens[i].valor
+            i += 1
+            right_val = tokens[i].valor
             i += 1
 
             where_condicoes.append({
-                "left": left, 
-                "op": op,
-                "right": right
+                "tabela": t_where,
+                "coluna": c_where,
+                "op": op_where,
+                "valor": right_val
             })
 
             if i < len(tokens) and tokens[i].valor == "AND":
@@ -211,71 +244,111 @@ def parse(tokens,i):
 
     return query_data, i
 
-def gerar_grafo_networkx(query_data):
+def gerar_grafo_networkx(query_data, schema_bd):
     G = nx.DiGraph()
     
-    # Dicionário para rastrear onde está o fluxo de cada tabela
-    # Isso permite que a gente insira o WHERE logo após o SCAN da tabela correta
+    # Criar um mapa do banco de dados para resolver colunas sem prefixo
+    bd_map = {t["name"]: [c["name"] for c in t["columns"]] for t in schema_bd["tables"]}
+   
+    tabelas_na_query = [query_data["FROM"]]
+    for j in query_data.get("INNER JOIN", []):
+        tabelas_na_query.append(j["table"])
+    
+    colunas_por_tabela = {tab: set() for tab in tabelas_na_query}
+
+    # 1. Mapear colunas do SELECT para suas respectivas tabelas
+    for col in query_data.get("SELECT", []):
+        if "." in col:
+            tab, c = col.split(".")
+            if tab in colunas_por_tabela:
+                colunas_por_tabela[tab].add(c)
+        else:
+            for tab in tabelas_na_query:
+                if col in bd_map.get(tab, []):
+                    colunas_por_tabela[tab].add(col)
+                    break
+
+    # 2. Mapear colunas do WHERE para suas respectivas tabelas
+    if query_data.get("WHERE"):
+        for cond in query_data["WHERE"]:
+            if isinstance(cond, dict):
+                tab = cond.get("tabela")
+                col = cond.get("coluna")
+                
+                if tab:
+                    if tab in colunas_por_tabela:
+                        colunas_por_tabela[tab].add(col)
+                else:
+                    # Inferir a tabela se não foi especificada (Ex: WHERE idProduto = 2)
+                    for t in tabelas_na_query:
+                        if col in bd_map.get(t, []):
+                            colunas_por_tabela[t].add(col)
+                            cond["tabela"] = t  # Atualiza a condição para uso no grafo
+                            break
+
+    # 3. Mapear colunas do JOIN
+    for join in query_data.get("INNER JOIN", []):
+        c = join["on"]
+        if c["tabela_left"] in colunas_por_tabela:
+            colunas_por_tabela[c["tabela_left"]].add(c["coluna_left"])
+        if c["tabela_right"] in colunas_por_tabela:
+            colunas_por_tabela[c["tabela_right"]].add(c["coluna_right"])
+
     fluxos = {}
 
-    # 1. Identificar tabelas e criar SCANS
-    tabelas_envolvidas = [query_data["FROM"]]
-    for j in query_data["INNER JOIN"]:
-        tabelas_envolvidas.append(j["table"])
-
-    for tab in tabelas_envolvidas:
+    for tab in tabelas_na_query:
+        # SCAN
         no_scan = f"SCAN_{tab}"
         G.add_node(no_scan, label=f"SCAN: {tab}")
-        fluxos[tab] = no_scan
+        no_atual = no_scan
 
-    # 2. Aplicar WHERE na tabela específica (Pushdown)
-    if query_data["WHERE"]:
-        for i, cond in enumerate(query_data["WHERE"]):
-            if isinstance(cond, dict):
-                left_val = cond['left']
-                # Tenta descobrir de qual tabela é a coluna
-                if "." in left_val:
-                    tab_ref, col_ref = left_val.split(".")
-                else:
-                    # Se não tem ponto, assume a tabela principal (ou a primeira que encontrar)
-                    tab_ref = query_data["FROM"]
-                    col_ref = left_val
-                
-                if tab_ref in fluxos:
-                    no_where = f"WHERE_{tab_ref}_{i}"
-                    label_where = f"σ: {tab_ref}.{col_ref} {cond['op']} {cond['right']}"
+        # WHERE (Pushdown de Seleção σ)
+        if query_data.get("WHERE"):
+            for i, cond in enumerate(query_data["WHERE"]):
+                if isinstance(cond, dict) and cond.get("tabela") == tab:
+                    no_where = f"WHERE_{tab}_{i}"
+                    label_where = f"σ: {tab}.{cond['coluna']} {cond['op']} {cond['valor']}"
                     G.add_node(no_where, label=label_where)
-                    
-                    # Conecta: SCAN -> WHERE
-                    origem = fluxos[tab_ref]
-                    G.add_edge(origem, no_where)
-                    # Atualiza o fluxo daquela tabela: agora o ponto de saída é o WHERE
-                    fluxos[tab_ref] = no_where
+                    G.add_edge(no_atual, no_where)
+                    no_atual = no_where
+        
+        # PROJEÇÃO ANTECIPADA (π) - Apenas colunas úteis desta tabela
+        cols_uteis = list(colunas_por_tabela[tab])
+        if cols_uteis:
+            no_proj_ante = f"PROJ_ANTE_{tab}"
+            label_proj = f"π: {', '.join(cols_uteis)}"
+            G.add_node(no_proj_ante, label=label_proj)
+            G.add_edge(no_atual, no_proj_ante)
+            no_atual = no_proj_ante
+        
+        fluxos[tab] = no_atual
 
-    # 3. Processar JOINS
-    # O nó atual da tabela principal começa o encadeamento
-    no_atual = fluxos[query_data["FROM"]]
+    # 4. CONECTAR JOINS (Árvore Binária)
+    no_acumulado = fluxos[query_data["FROM"]]
 
-    if query_data["INNER JOIN"]:
+    if query_data.get("INNER JOIN"):
         for i, join in enumerate(query_data["INNER JOIN"]):
-            tab_direita = join["table"]
+            tab_dir = join["table"]
             no_join = f"JOIN_OP_{i}"
-            condicao = f"{join['on']['left']} = {join['on']['right']}"
-            G.add_node(no_join, label=f"INNER JOIN\nON {condicao}")
             
-            # Conecta a esquerda (o que já temos) e a direita (fluxo da tabela do join)
-            G.add_edge(no_atual, no_join)
-            G.add_edge(fluxos[tab_direita], no_join)
+            c = join["on"]
+            cond_str = f"{c['tabela_left']}.{c['coluna_left']} = {c['tabela_right']}.{c['coluna_right']}"
             
-            no_atual = no_join
+            G.add_node(no_join, label=f"INNER JOIN\nON {cond_str}")
+            G.add_edge(no_acumulado, no_join)
+            G.add_edge(fluxos[tab_dir], no_join)
+            
+            no_acumulado = no_join
 
-    # 4. Nó de SELECT (Projeção Final)
-    no_select = "SELECT_OP"
-    colunas = ", ".join(query_data["SELECT"])
-    G.add_node(no_select, label=f"PROJECTION (π)\n[{colunas}]")
-    G.add_edge(no_atual, no_select)
+    # 5. PROJEÇÃO FINAL (DISPLAY)
+    no_final = "SELECT_FINAL"
+    label_final = f"DISPLAY π\n[{', '.join(query_data['SELECT'])}]"
+    G.add_node(no_final, label=label_final)
+    G.add_edge(no_acumulado, no_final)
 
     return G
+
+   
 
 def parse_multiplas_queries(tokens):
     todas_as_queries = []
@@ -286,7 +359,6 @@ def parse_multiplas_queries(tokens):
         todas_as_queries.append(resultado)
         i = proximo_i
     return todas_as_queries
-
 
 def validar_schema(lista_de_queries, schema_bd):
     # Mapa de busca rápida: {'nome_tabela': ['coluna1', 'coluna2']}
@@ -303,40 +375,55 @@ def validar_schema(lista_de_queries, schema_bd):
 
         # 2. Validar INNER JOINs
         for join in query.get("INNER JOIN", []):
-            # --- CORREÇÃO: Verifica se a tabela do JOIN existe ---
+           
             tabela_join = join.get("table")
             if tabela_join not in bd_map:
                 raise Exception(f"Query {idx+1}: Tabela do JOIN '{tabela_join}' não existe no banco de dados.")
             tabelas_na_query.add(tabela_join)
 
-            # Validar as colunas da condição ON (tabela.coluna)
-            for lado in ['left', 'right']:
-                val_on = join['on'][lado]
-                if "." not in val_on:
-                    raise Exception(f"JOIN: Formato inválido em '{val_on}'. Use 'tabela.coluna'.")
+            # for lado in ['left', 'right']:
+            #     val_on = join['on'][lado]
+            #     if "." not in val_on:
+            #         raise Exception(f"JOIN: Formato inválido em '{val_on}'. Use 'tabela.coluna'.")
                
-                tab_on, col_on = val_on.split('.')
+            #     tab_on, col_on = val_on.split('.')
                
-                # Verifica se a tabela citada no ON está nas tabelas da query
-                if tab_on not in bd_map:
-                    raise Exception(f"JOIN: Tabela '{tab_on}' referenciada no ON não existe.")
+            #     # Verifica se a tabela citada no ON está nas tabelas da query
+            #     if tab_on not in bd_map:
+            #         raise Exception(f"JOIN: Tabela '{tab_on}' referenciada no ON não existe.")
                
-                # Verifica se a coluna existe naquela tabela específica
-                if col_on not in bd_map[tab_on]:
-                    raise Exception(f"JOIN: Coluna '{col_on}' não existe na tabela '{tab_on}'.")
+            #     # Verifica se a coluna existe naquela tabela específica
+            #     if col_on not in bd_map[tab_on]:
+            #         raise Exception(f"JOIN: Coluna '{col_on}' não existe na tabela '{tab_on}'.")
+            
+            # Validação dos pares tabela/coluna no ON
+            on_cond = join['on']
+            pares_para_validar = [
+                (on_cond['tabela_left'], on_cond['coluna_left']),
+                (on_cond['tabela_right'], on_cond['coluna_right'])
+            ]
+
+            for tab, col in pares_para_validar:
+                # Verifica se a tabela mencionada existe no BD
+                if tab not in bd_map:
+                    raise Exception(f"JOIN: Tabela '{tab}' mencionada na condição ON não existe.")
+                # Verifica se a coluna existe nessa tabela
+                if col not in bd_map[tab]:
+                    raise Exception(f"JOIN: Coluna '{col}' não existe na tabela '{tab}'.")
+
 
         # 3. Validar Colunas do SELECT
         for coluna in query.get("SELECT", []):
             encontrada = False
-            if "." in coluna:
-                t_ref, c_ref = coluna.split(".")
-                if t_ref in bd_map and c_ref in bd_map[t_ref]:
+            # if "." in coluna:
+            #     t_ref, c_ref = coluna.split(".")
+            #     if t_ref in bd_map and c_ref in bd_map[t_ref]:
+            #         encontrada = True
+            # else:
+            for t in tabelas_na_query:
+                if coluna in bd_map[t]:
                     encontrada = True
-            else:
-                for t in tabelas_na_query:
-                    if coluna in bd_map[t]:
-                        encontrada = True
-                        break
+                    break
             if not encontrada:
                 raise Exception(f"SELECT: Coluna '{coluna}' não encontrada nas tabelas {tabelas_na_query}.")
 
@@ -344,19 +431,35 @@ def validar_schema(lista_de_queries, schema_bd):
         if query.get("WHERE"):
             for cond in query.get("WHERE"):
                 if isinstance(cond, dict):
-                    col_completa = cond['left']
+                #     col_completa = cond['left']
                    
-                    if "." in col_completa:
-                        tab_ref, col_ref = col_completa.split(".")
+                #     if "." in col_completa:
+                #         tab_ref, col_ref = col_completa.split(".")
+                #         if tab_ref not in tabelas_na_query:
+                #             raise Exception(f"WHERE: Tabela '{tab_ref}' não referenciada na query.")
+                #         if col_ref not in bd_map.get(tab_ref, []):
+                #             raise Exception(f"WHERE: Coluna '{col_ref}' não existe em '{tab_ref}'.")
+                #     else:
+                #         encontrada = False
+                #         for t in tabelas_na_query:
+                #             if col_completa in bd_map.get(t, []):
+                #                 encontrada = True
+                #                 break
+                    tab_ref = cond.get('tabela')
+                    col_ref = cond.get('coluna')
+                    
+                    if tab_ref: # Se a tabela foi especificada
                         if tab_ref not in tabelas_na_query:
                             raise Exception(f"WHERE: Tabela '{tab_ref}' não referenciada na query.")
                         if col_ref not in bd_map.get(tab_ref, []):
-                            raise Exception(f"WHERE: Coluna '{col_ref}' não existe em '{tab_ref}'.")
+                            raise Exception(f"WHERE: Coluna '{col_ref}' não existe na tabela '{tab_ref}'.")
                     else:
+                        # Se a tabela for None (inferência), busca em todas as tabelas da query
                         encontrada = False
                         for t in tabelas_na_query:
-                            if col_completa in bd_map.get(t, []):
+                            if col_ref in bd_map.get(t, []):
                                 encontrada = True
                                 break
+
                         if not encontrada:
-                            raise Exception(f"WHERE: Coluna '{col_completa}' não encontrada.")
+                            raise Exception(f"WHERE: Coluna '{col_ref}' não encontrada.")
