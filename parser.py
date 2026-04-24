@@ -110,7 +110,7 @@ def parse(tokens,i):
     # INNER JOIN (opcional)
     joins = []
 
-    if i < len(tokens) and tokens[i].valor == "INNER":
+    while i < len(tokens) and tokens[i].valor == "INNER":
         i += 1
         
         if i < len(tokens) and tokens[i].valor == "JOIN":
@@ -303,8 +303,6 @@ def gerar_grafo_networkx(query_data, schema_bd):
     G.add_edge(no_acumulado, no_final)
 
     return G
-
-   
 
 def parse_multiplas_queries(tokens):
     todas_as_queries = []
