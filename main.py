@@ -8,10 +8,10 @@ if __name__ == "__main__":
     queries_para_testar = (
         "SELECT idCategoria FROM Categoria;"
         
-        "SELECT Nome FROM Produto"
+        "SELECT Nome FROM Produto "
         "WHERE idProduto = 2 AND idProduto = 3;"
         
-        "SELECT Nome, Email FROM Cliente"
+        "SELECT Nome, Email FROM Cliente "
         "INNER JOIN Endereco ON Cliente.idCliente = Endereco.Cliente_idCliente "
         "INNER JOIN TipoCliente ON Cliente.TipoCliente_idTipoCliente = TipoCliente.idTipoCliente "
         "WHERE TipoCliente.idTipoCliente = 2;"
@@ -23,9 +23,9 @@ if __name__ == "__main__":
         
         validar_schema(lista_de_queries, bd)
         
-        print("✅ Sucesso: Todas as colunas e tabelas existem no banco de dados!")
+        # print("✅ Sucesso: Todas as colunas e tabelas existem no banco de dados!")
         
-        # print(json.dumps(lista_de_queries, indent=2, ensure_ascii=False))
+        print(json.dumps(lista_de_queries, indent=2, ensure_ascii=False))
 
         # Gerar e desenhar o grafo para cada query
         for idx, query_data in enumerate(lista_de_queries):
