@@ -2,6 +2,7 @@ from parser import tokenize, parse_multiplas_queries as parse, validar_schema, g
 from data import bd
 import matplotlib.pyplot as plt
 import networkx as nx
+from pyvis.network import Network
 import json
 
 if __name__ == "__main__":
@@ -26,28 +27,65 @@ if __name__ == "__main__":
         # print("✅ Sucesso: Todas as colunas e tabelas existem no banco de dados!")
         
         print(json.dumps(lista_de_queries, indent=2, ensure_ascii=False))
-
-        # Gerar e desenhar o grafo para cada query
         for idx, query_data in enumerate(lista_de_queries):
-            # print(f"Gerando grafo para a Query {idx + 1}...")
-            
+                G = gerar_grafo_networkx(query_data, bd)
+                
+                for node in G.nodes():
 
-            G = gerar_grafo_networkx(query_data, bd)
-            
-            plt.figure(figsize=(10, 6))
-            
-            pos = nx.planar_layout(G) 
-            
+                    G.nodes[node]['shape'] = 'box'
 
-            labels = nx.get_node_attributes(G, 'label')
-            
-            nx.draw(G, pos, with_labels=True, labels=labels, 
-                    node_size=3000, node_color="lightgreen", 
-                    font_size=6, font_weight="bold", 
-                    arrows=True, edge_color="gray")
-            
-            plt.title(f"Grafo de Operadores - Query {idx + 1}")
-            plt.show()
+                    G.nodes[node]['color'] = {
+                        'background': '#dbeafe', 
+                        'border': '#38bdf8',
+                    }
+                    
+                    # Fonte e tamanho mínimo
+                    G.nodes[node]['font'] = {'size': 16, 'face': 'Segoe UI','multi': 'html'}
+                    texto_atual = G.nodes[node].get('label', str(node))
+                    G.nodes[node]['label'] = f"<b>{texto_atual}"
+                    G.nodes[node]['widthConstraint'] = {'minimum': 160}
+                    G.nodes[node]['heightConstraint'] = {'minimum': 60}
+                    G.nodes[node]['margin'] = 15 
+                    G.nodes[node]['borderWidth'] = 2
+                
+                net = Network(height="800px", width="100%", directed=True)
 
+                net.from_nx(G)
+                
+                net.set_options("""
+                var options = {
+                "interaction": {
+                    "selectable": false,
+                    "dragNodes": false,
+                    "dragView": true,
+                    "zoomView": true
+                },              
+                "edges": {
+                    "smooth": {
+                    "type": "cubicBezier",
+                    "forceDirection": "vertical",
+                    "roundness": 0.4
+                    }
+                },
+                "layout": {
+                    "hierarchical": {
+                    "enabled": true,
+                    "direction": "DU",
+                    "sortMethod": "directed",
+                    "levelSeparation": 200,
+                    "nodeSpacing": 300
+                    }
+                },
+                "physics": {
+                    "enabled": false
+                }
+                }
+                """)
+                
+                # Salva e abre o ficheiro HTML
+                ficheiro_saida = f"grafo_query_{idx + 1}.html"
+                net.show(ficheiro_saida, notebook=False)
+                print(f"✅ Grafo atualizado: {ficheiro_saida}")
+       
     except Exception as e:
         print(f"❌ Erro de validação: {e}")
