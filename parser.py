@@ -205,6 +205,274 @@ def parse(tokens,i):
 
     return query_data, i
 
+# def gerar_grafo_networkx(query_data, schema_bd):
+#     G = nx.DiGraph()
+    
+#     # Criar um mapa do banco de dados para resolver colunas sem prefixo
+#     bd_map = {t["name"]: [c["name"] for c in t["columns"]] for t in schema_bd["tables"]}
+   
+#     tabelas_na_query = [query_data["FROM"]]
+#     for j in query_data.get("INNER JOIN", []):
+#         tabelas_na_query.append(j["table"])
+    
+#     colunas_por_tabela = {tab: set() for tab in tabelas_na_query}
+
+#     # 1. Mapear colunas do SELECT para suas respectivas tabelas
+#     for col in query_data.get("SELECT", []):
+#         for tab in tabelas_na_query:
+#             if col in bd_map.get(tab, []):
+#                 colunas_por_tabela[tab].add(col)
+#                 break
+
+#     # 2. Mapear colunas do WHERE para suas respectivas tabelas
+#     if query_data.get("WHERE"):
+#         for cond in query_data["WHERE"]:
+#             if isinstance(cond, dict):
+#                 tab = cond.get("tabela")
+#                 col = cond.get("coluna")
+                
+#                 if tab:
+#                     if tab in colunas_por_tabela:
+#                         colunas_por_tabela[tab].add(col)
+#                 else:
+#                     # Inferir a tabela se não foi especificada (Ex: WHERE idProduto = 2)
+#                     for t in tabelas_na_query:
+#                         if col in bd_map.get(t, []):
+#                             colunas_por_tabela[t].add(col)
+#                             cond["tabela"] = t  # Atualiza a condição para uso no grafo
+#                             break
+
+#     # 3. Mapear colunas do JOIN
+#     for join in query_data.get("INNER JOIN", []):
+#         c = join["on"]
+#         if c["tabela_left"] in colunas_por_tabela:
+#             colunas_por_tabela[c["tabela_left"]].add(c["coluna_left"])
+#         if c["tabela_right"] in colunas_por_tabela:
+#             colunas_por_tabela[c["tabela_right"]].add(c["coluna_right"])
+
+#     fluxos = {}
+    
+#     # restrições para fazer as outras heurísticas
+#     restricoes_por_tabela = {tab: 0 for tab in tabelas_na_query} # alteracao
+
+#     for tab in tabelas_na_query:
+#         # SCAN
+#         no_scan = f"SCAN_{tab}"
+#         G.add_node(no_scan, label=f"SCAN: {tab}")
+#         no_atual = no_scan
+
+#         # WHERE (Pushdown de Seleção σ)
+#         if query_data.get("WHERE"):
+#             for i, cond in enumerate(query_data["WHERE"]):
+#                 if isinstance(cond, dict) and cond.get("tabela") == tab:
+#                     restricoes_por_tabela[tab] += 1
+#                     no_where = f"WHERE_{tab}_{i}"
+#                     label_where = f"σ: {tab}.{cond['coluna']} {cond['op']} {cond['valor']}"
+#                     G.add_node(no_where, label=label_where)
+#                     G.add_edge(no_atual, no_where)
+#                     no_atual = no_where
+        
+#         # PROJEÇÃO ANTECIPADA (π) - Apenas colunas úteis desta tabela
+#         cols_uteis = list(colunas_por_tabela[tab])
+#         if cols_uteis:
+#             no_proj_ante = f"PROJ_ANTE_{tab}"
+#             label_proj = f"π: {', '.join(cols_uteis)}"
+#             G.add_node(no_proj_ante, label=label_proj)
+#             G.add_edge(no_atual, no_proj_ante)
+#             no_atual = no_proj_ante
+        
+#         fluxos[tab] = no_atual
+
+#     # 4. CONECTAR JOINS (Árvore Binária)
+#     juncoes_pendentes = list(query_data.get("INNER JOIN", [])) # alteracao
+    
+    
+#     no_acumulado = fluxos[query_data["FROM"]]
+
+#     # if query_data.get("INNER JOIN"):
+#     #     for i, join in enumerate(query_data["INNER JOIN"]):
+#     #         tab_dir = join["table"]
+#     #         no_join = f"JOIN_OP_{i}"
+            
+#     #         c = join["on"]
+#     #         cond_str = f"{c['tabela_left']}.{c['coluna_left']} = {c['tabela_right']}.{c['coluna_right']}"
+            
+#     #         G.add_node(no_join, label=f"INNER JOIN\nON {cond_str}")
+#     #         G.add_edge(no_acumulado, no_join)
+#     #         G.add_edge(fluxos[tab_dir], no_join)
+            
+#     #         no_acumulado = no_join
+    
+    
+#     if not juncoes_pendentes:
+#         no_acumulado = fluxos[query_data["FROM"]]
+#     else:
+#         # Heurística b/i: Começar pela tabela mais restritiva (maior número de WHEREs)
+#         tabela_inicial = max(restricoes_por_tabela, key=restricoes_por_tabela.get)
+#         tabelas_processadas = {tabela_inicial}
+#         no_acumulado = fluxos[tabela_inicial]
+        
+#         ordem_joins_realizada = 0
+
+#         while juncoes_pendentes:
+#             melhor_join_idx = -1
+#             melhor_tabela_nova = None
+#             maior_restricao = -1
+
+#             # Procurar a próxima junção válida
+#             for idx, join in enumerate(juncoes_pendentes):
+#                 c = join["on"]
+#                 tab_left, tab_right = c["tabela_left"], c["tabela_right"]
+
+#                 # Heurística ii: Evitar produto cartesiano garantindo conectividade com o que já foi processado
+#                 conecta_left = tab_left in tabelas_processadas and tab_right not in tabelas_processadas
+#                 conecta_right = tab_right in tabelas_processadas and tab_left not in tabelas_processadas
+
+#                 if conecta_left or conecta_right:
+#                     tabela_nova = tab_right if conecta_left else tab_left
+#                     restricao_nova = restricoes_por_tabela[tabela_nova]
+
+#                     # Heurística b: Escolher a junção que traz a tabela mais restritiva disponível
+#                     if restricao_nova > maior_restricao:
+#                         maior_restricao = restricao_nova
+#                         melhor_join_idx = idx
+#                         melhor_tabela_nova = tabela_nova
+
+#             if melhor_join_idx != -1:
+#                 # Aplica a junção selecionada (Heurística iii: Ajustar a árvore)
+#                 join_escolhido = juncoes_pendentes.pop(melhor_join_idx)
+#                 c = join_escolhido["on"]
+#                 cond_str = f"{c['tabela_left']}.{c['coluna_left']} = {c['tabela_right']}.{c['coluna_right']}"
+
+#                 no_join = f"JOIN_OP_{ordem_joins_realizada}"
+#                 G.add_node(no_join, label=f"INNER JOIN\nON {cond_str}")
+
+#                 # Conecta a sub-árvore acumulada com o ramo da nova tabela
+#                 G.add_edge(no_acumulado, no_join)
+#                 G.add_edge(fluxos[melhor_tabela_nova], no_join)
+
+#                 no_acumulado = no_join
+#                 tabelas_processadas.add(melhor_tabela_nova)
+#                 ordem_joins_realizada += 1
+#             else:
+#                 # Fallback de segurança (caso haja erro lógico na query ou join desconexo)
+#                 join_escolhido = juncoes_pendentes.pop(0)
+#                 c = join_escolhido["on"]
+#                 no_join = f"JOIN_OP_{ordem_joins_realizada}_FALLBACK"
+#                 G.add_node(no_join, label=f"INNER JOIN\nON {c['tabela_left']}.{c['coluna_left']} = {c['tabela_right']}.{c['coluna_right']}")
+#                 G.add_edge(no_acumulado, no_join)
+#                 G.add_edge(fluxos[join_escolhido["table"]], no_join)
+#                 no_acumulado = no_join
+#                 tabelas_processadas.add(join_escolhido["table"])
+#                 ordem_joins_realizada += 1
+
+#     # 5. PROJEÇÃO FINAL (DISPLAY)
+#     no_final = "SELECT_FINAL"
+#     label_final = f"DISPLAY π\n[{', '.join(query_data['SELECT'])}]"
+#     G.add_node(no_final, label=label_final)
+#     G.add_edge(no_acumulado, no_final)
+
+#     return G
+
+def selecao(G, tab, query_data, no_atual, restricoes_por_tabela):
+    """
+    Heurística a.i: Aplicar primeiro operações de seleção - reduzem o número de tuplas.
+    """
+    if query_data.get("WHERE"):
+        for i, cond in enumerate(query_data["WHERE"]):
+            if isinstance(cond, dict) and cond.get("tabela") == tab:
+                restricoes_por_tabela[tab] += 1
+                no_where = f"WHERE_{tab}_{i}"
+                label_where = f"σ: {tab}.{cond['coluna']} {cond['op']} {cond['valor']}"
+                G.add_node(no_where, label=label_where)
+                G.add_edge(no_atual, no_where)
+                no_atual = no_where
+    return no_atual
+
+def projecao(G, tab, cols_uteis, no_atual):
+    """
+    Heurística a.ii: Aplicar primeiro operações de projeção - reduzem o número de atributos.
+    """
+    cols_uteis_list = list(cols_uteis)
+    if cols_uteis_list:
+        no_proj_ante = f"PROJ_ANTE_{tab}"
+        label_proj = f"π: {', '.join(cols_uteis_list)}"
+        G.add_node(no_proj_ante, label=label_proj)
+        G.add_edge(no_atual, no_proj_ante)
+        no_atual = no_proj_ante
+    return no_atual
+
+def juncoes(G, fluxos, juncoes_pendentes, query_data, restricoes_por_tabela):
+    """
+    Heurística b: Aplicar primeiro as operações de seleção e de junção mais restritivas.
+    i. reordenar os nós folha da árvore de consulta
+    ii. evitar a operação de produto cartesiano
+    iii. ajustar o restante da árvore de forma apropriada
+    """
+    tabela_base = query_data["FROM"]
+    if not juncoes_pendentes:
+        return fluxos[tabela_base]
+
+    # i. Reordenar os nós folha (começar pela tabela mais restritiva, que tem mais WHEREs)
+    tabela_inicial = max(restricoes_por_tabela, key=restricoes_por_tabela.get)
+    tabelas_processadas = {tabela_inicial}
+    no_acumulado = fluxos[tabela_inicial]
+    
+    ordem_joins_realizada = 0
+
+    while juncoes_pendentes:
+        melhor_join_idx = -1
+        melhor_tabela_nova = None
+        maior_restricao = -1
+
+        for idx, join in enumerate(juncoes_pendentes):
+            c = join["on"]
+            tab_left, tab_right = c["tabela_left"], c["tabela_right"]
+
+            # ii. Evitar produto cartesiano (garantindo que pelo menos uma das tabelas já está na árvore)
+            conecta_left = tab_left in tabelas_processadas and tab_right not in tabelas_processadas
+            conecta_right = tab_right in tabelas_processadas and tab_left not in tabelas_processadas
+
+            if conecta_left or conecta_right:
+                tabela_nova = tab_right if conecta_left else tab_left
+                restricao_nova = restricoes_por_tabela[tabela_nova]
+
+                # Pegar a junção mais restritiva primeiro
+                if restricao_nova > maior_restricao:
+                    maior_restricao = restricao_nova
+                    melhor_join_idx = idx
+                    melhor_tabela_nova = tabela_nova
+
+        if melhor_join_idx != -1:
+            # iii. Ajustar o restante da árvore de forma apropriada conectando o fluxo da nova tabela
+            join_escolhido = juncoes_pendentes.pop(melhor_join_idx)
+            c = join_escolhido["on"]
+            cond_str = f"{c['tabela_left']}.{c['coluna_left']} = {c['tabela_right']}.{c['coluna_right']}"
+
+            no_join = f"JOIN_OP_{ordem_joins_realizada}"
+            G.add_node(no_join, label=f"INNER JOIN\nON {cond_str}")
+
+            # Conecta sub-árvore acumulada com ramo novo
+            G.add_edge(no_acumulado, no_join)
+            G.add_edge(fluxos[melhor_tabela_nova], no_join)
+
+            no_acumulado = no_join
+            tabelas_processadas.add(melhor_tabela_nova)
+            ordem_joins_realizada += 1
+        else:
+            # Fallback de segurança (caso a query force um cartesiano ou esteja desconexa)
+            join_escolhido = juncoes_pendentes.pop(0)
+            c = join_escolhido["on"]
+            no_join = f"JOIN_OP_{ordem_joins_realizada}_FALLBACK"
+            G.add_node(no_join, label=f"INNER JOIN\nON {c['tabela_left']}.{c['coluna_left']} = {c['tabela_right']}.{c['coluna_right']}")
+            G.add_edge(no_acumulado, no_join)
+            G.add_edge(fluxos[join_escolhido["table"]], no_join)
+            no_acumulado = no_join
+            tabelas_processadas.add(join_escolhido["table"])
+            ordem_joins_realizada += 1
+
+    return no_acumulado
+
 def gerar_grafo_networkx(query_data, schema_bd):
     G = nx.DiGraph()
     
@@ -235,11 +503,11 @@ def gerar_grafo_networkx(query_data, schema_bd):
                     if tab in colunas_por_tabela:
                         colunas_por_tabela[tab].add(col)
                 else:
-                    # Inferir a tabela se não foi especificada (Ex: WHERE idProduto = 2)
+                    # Inferir a tabela se não foi especificada
                     for t in tabelas_na_query:
                         if col in bd_map.get(t, []):
                             colunas_por_tabela[t].add(col)
-                            cond["tabela"] = t  # Atualiza a condição para uso no grafo
+                            cond["tabela"] = t
                             break
 
     # 3. Mapear colunas do JOIN
@@ -251,120 +519,26 @@ def gerar_grafo_networkx(query_data, schema_bd):
             colunas_por_tabela[c["tabela_right"]].add(c["coluna_right"])
 
     fluxos = {}
-    
-    # restrições para fazer as outras heurísticas
-    restricoes_por_tabela = {tab: 0 for tab in tabelas_na_query} # alteracao
+    restricoes_por_tabela = {tab: 0 for tab in tabelas_na_query}
 
+    # Aplicação das Heurísticas A (Pushdown de Seleção e Projeção)
     for tab in tabelas_na_query:
-        # SCAN
         no_scan = f"SCAN_{tab}"
         G.add_node(no_scan, label=f"SCAN: {tab}")
         no_atual = no_scan
 
-        # WHERE (Pushdown de Seleção σ)
-        if query_data.get("WHERE"):
-            for i, cond in enumerate(query_data["WHERE"]):
-                if isinstance(cond, dict) and cond.get("tabela") == tab:
-                    restricoes_por_tabela[tab] += 1
-                    no_where = f"WHERE_{tab}_{i}"
-                    label_where = f"σ: {tab}.{cond['coluna']} {cond['op']} {cond['valor']}"
-                    G.add_node(no_where, label=label_where)
-                    G.add_edge(no_atual, no_where)
-                    no_atual = no_where
+        # Heurística a.i - Seleção
+        no_atual = selecao(G, tab, query_data, no_atual, restricoes_por_tabela)
         
-        # PROJEÇÃO ANTECIPADA (π) - Apenas colunas úteis desta tabela
-        cols_uteis = list(colunas_por_tabela[tab])
-        if cols_uteis:
-            no_proj_ante = f"PROJ_ANTE_{tab}"
-            label_proj = f"π: {', '.join(cols_uteis)}"
-            G.add_node(no_proj_ante, label=label_proj)
-            G.add_edge(no_atual, no_proj_ante)
-            no_atual = no_proj_ante
+        # Heurística a.ii - Projeção Antecipada
+        cols_uteis = colunas_por_tabela[tab]
+        no_atual = projecao(G, tab, cols_uteis, no_atual)
         
         fluxos[tab] = no_atual
 
-    # 4. CONECTAR JOINS (Árvore Binária)
-    juncoes_pendentes = list(query_data.get("INNER JOIN", [])) # alteracao
-    
-    
-    no_acumulado = fluxos[query_data["FROM"]]
-
-    # if query_data.get("INNER JOIN"):
-    #     for i, join in enumerate(query_data["INNER JOIN"]):
-    #         tab_dir = join["table"]
-    #         no_join = f"JOIN_OP_{i}"
-            
-    #         c = join["on"]
-    #         cond_str = f"{c['tabela_left']}.{c['coluna_left']} = {c['tabela_right']}.{c['coluna_right']}"
-            
-    #         G.add_node(no_join, label=f"INNER JOIN\nON {cond_str}")
-    #         G.add_edge(no_acumulado, no_join)
-    #         G.add_edge(fluxos[tab_dir], no_join)
-            
-    #         no_acumulado = no_join
-    
-    
-    if not juncoes_pendentes:
-        no_acumulado = fluxos[query_data["FROM"]]
-    else:
-        # Heurística b/i: Começar pela tabela mais restritiva (maior número de WHEREs)
-        tabela_inicial = max(restricoes_por_tabela, key=restricoes_por_tabela.get)
-        tabelas_processadas = {tabela_inicial}
-        no_acumulado = fluxos[tabela_inicial]
-        
-        ordem_joins_realizada = 0
-
-        while juncoes_pendentes:
-            melhor_join_idx = -1
-            melhor_tabela_nova = None
-            maior_restricao = -1
-
-            # Procurar a próxima junção válida
-            for idx, join in enumerate(juncoes_pendentes):
-                c = join["on"]
-                tab_left, tab_right = c["tabela_left"], c["tabela_right"]
-
-                # Heurística ii: Evitar produto cartesiano garantindo conectividade com o que já foi processado
-                conecta_left = tab_left in tabelas_processadas and tab_right not in tabelas_processadas
-                conecta_right = tab_right in tabelas_processadas and tab_left not in tabelas_processadas
-
-                if conecta_left or conecta_right:
-                    tabela_nova = tab_right if conecta_left else tab_left
-                    restricao_nova = restricoes_por_tabela[tabela_nova]
-
-                    # Heurística b: Escolher a junção que traz a tabela mais restritiva disponível
-                    if restricao_nova > maior_restricao:
-                        maior_restricao = restricao_nova
-                        melhor_join_idx = idx
-                        melhor_tabela_nova = tabela_nova
-
-            if melhor_join_idx != -1:
-                # Aplica a junção selecionada (Heurística iii: Ajustar a árvore)
-                join_escolhido = juncoes_pendentes.pop(melhor_join_idx)
-                c = join_escolhido["on"]
-                cond_str = f"{c['tabela_left']}.{c['coluna_left']} = {c['tabela_right']}.{c['coluna_right']}"
-
-                no_join = f"JOIN_OP_{ordem_joins_realizada}"
-                G.add_node(no_join, label=f"INNER JOIN\nON {cond_str}")
-
-                # Conecta a sub-árvore acumulada com o ramo da nova tabela
-                G.add_edge(no_acumulado, no_join)
-                G.add_edge(fluxos[melhor_tabela_nova], no_join)
-
-                no_acumulado = no_join
-                tabelas_processadas.add(melhor_tabela_nova)
-                ordem_joins_realizada += 1
-            else:
-                # Fallback de segurança (caso haja erro lógico na query ou join desconexo)
-                join_escolhido = juncoes_pendentes.pop(0)
-                c = join_escolhido["on"]
-                no_join = f"JOIN_OP_{ordem_joins_realizada}_FALLBACK"
-                G.add_node(no_join, label=f"INNER JOIN\nON {c['tabela_left']}.{c['coluna_left']} = {c['tabela_right']}.{c['coluna_right']}")
-                G.add_edge(no_acumulado, no_join)
-                G.add_edge(fluxos[join_escolhido["table"]], no_join)
-                no_acumulado = no_join
-                tabelas_processadas.add(join_escolhido["table"])
-                ordem_joins_realizada += 1
+    # Aplicação da Heurística B (Junções com menor número de tuplas e prevenção de Produto Cartesiano)
+    juncoes_pendentes = list(query_data.get("INNER JOIN", []))
+    no_acumulado = juncoes(G, fluxos, juncoes_pendentes, query_data, restricoes_por_tabela)
 
     # 5. PROJEÇÃO FINAL (DISPLAY)
     no_final = "SELECT_FINAL"
