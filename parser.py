@@ -374,7 +374,7 @@ def parse(tokens,i):
 
 #     return G
 
-def selecao(G, tab, query_data, no_atual, restricoes_por_tabela):
+def selecao(G, tab, query_data, no_atual, restricoes_por_tabela,plano):
     """
     Heurística a.i: Aplicar primeiro operações de seleção - reduzem o número de tuplas.
     """
@@ -383,26 +383,30 @@ def selecao(G, tab, query_data, no_atual, restricoes_por_tabela):
             if isinstance(cond, dict) and cond.get("tabela") == tab:
                 restricoes_por_tabela[tab] += 1
                 no_where = f"WHERE_{tab}_{i}"
-                label_where = f"σ: {tab}.{cond['coluna']} {cond['op']} {cond['valor']}"
+                label_where = f"σ\n {cond['coluna']} {cond['op']} {cond['valor']}"
                 G.add_node(no_where, label=label_where)
                 G.add_edge(no_atual, no_where)
                 no_atual = no_where
+                # Registro no plano de execução
+                plano.append(f"Aplicando filtro (σ) em {tab}")
     return no_atual
 
-def projecao(G, tab, cols_uteis, no_atual):
+def projecao(G, tab, cols_uteis, no_atual,plano):
     """
     Heurística a.ii: Aplicar primeiro operações de projeção - reduzem o número de atributos.
     """
     cols_uteis_list = list(cols_uteis)
     if cols_uteis_list:
         no_proj_ante = f"PROJ_ANTE_{tab}"
-        label_proj = f"π: {', '.join(cols_uteis_list)}"
+        label_proj = f"π\n {'\n '.join(cols_uteis_list)}"
         G.add_node(no_proj_ante, label=label_proj)
         G.add_edge(no_atual, no_proj_ante)
         no_atual = no_proj_ante
+        # Registro no plano de execução
+        plano.append(f"Reduzindo atributos (π) da tabela {tab}")
     return no_atual
 
-def juncoes(G, fluxos, juncoes_pendentes, query_data, restricoes_por_tabela):
+def juncoes(G, fluxos, juncoes_pendentes, query_data, restricoes_por_tabela,plano):
     """
     Heurística b: Aplicar primeiro as operações de seleção e de junção mais restritivas.
     i. reordenar os nós folha da árvore de consulta
@@ -447,7 +451,7 @@ def juncoes(G, fluxos, juncoes_pendentes, query_data, restricoes_por_tabela):
             # iii. Ajustar o restante da árvore de forma apropriada conectando o fluxo da nova tabela
             join_escolhido = juncoes_pendentes.pop(melhor_join_idx)
             c = join_escolhido["on"]
-            cond_str = f"{c['tabela_left']}.{c['coluna_left']} = {c['tabela_right']}.{c['coluna_right']}"
+            cond_str = f"{c['coluna_left']} = {c['coluna_right']}"
 
             no_join = f"JOIN_OP_{ordem_joins_realizada}"
             G.add_node(no_join, label=f"INNER JOIN\nON {cond_str}")
@@ -455,6 +459,9 @@ def juncoes(G, fluxos, juncoes_pendentes, query_data, restricoes_por_tabela):
             # Conecta sub-árvore acumulada com ramo novo
             G.add_edge(no_acumulado, no_join)
             G.add_edge(fluxos[melhor_tabela_nova], no_join)
+
+            # Registro no plano de execução
+            plano.append(f"Realizando Junção (⋈) entre o fluxo atual e {melhor_tabela_nova} via {cond_str}")
 
             no_acumulado = no_join
             tabelas_processadas.add(melhor_tabela_nova)
@@ -464,7 +471,7 @@ def juncoes(G, fluxos, juncoes_pendentes, query_data, restricoes_por_tabela):
             join_escolhido = juncoes_pendentes.pop(0)
             c = join_escolhido["on"]
             no_join = f"JOIN_OP_{ordem_joins_realizada}_FALLBACK"
-            G.add_node(no_join, label=f"INNER JOIN\nON {c['tabela_left']}.{c['coluna_left']} = {c['tabela_right']}.{c['coluna_right']}")
+            G.add_node(no_join, label=f"INNER JOIN\nON {c['coluna_left']} = {c['coluna_right']}")
             G.add_edge(no_acumulado, no_join)
             G.add_edge(fluxos[join_escolhido["table"]], no_join)
             no_acumulado = no_join
@@ -475,6 +482,7 @@ def juncoes(G, fluxos, juncoes_pendentes, query_data, restricoes_por_tabela):
 
 def gerar_grafo_networkx(query_data, schema_bd):
     G = nx.DiGraph()
+    plano_execucao = []
     
     # Criar um mapa do banco de dados para resolver colunas sem prefixo
     bd_map = {t["name"]: [c["name"] for c in t["columns"]] for t in schema_bd["tables"]}
@@ -524,31 +532,34 @@ def gerar_grafo_networkx(query_data, schema_bd):
     # Aplicação das Heurísticas A (Pushdown de Seleção e Projeção)
     for tab in tabelas_na_query:
         no_scan = f"SCAN_{tab}"
-        G.add_node(no_scan, label=f"SCAN: {tab}")
+        G.add_node(no_scan, label=f"SCAN\n {tab}")
         no_atual = no_scan
+        plano_execucao.append(f"Iniciando leitura (SCAN) da tabela: {tab}")
 
         # Heurística a.i - Seleção
-        no_atual = selecao(G, tab, query_data, no_atual, restricoes_por_tabela)
+        no_atual = selecao(G, tab, query_data, no_atual, restricoes_por_tabela,plano_execucao)
         
         # Heurística a.ii - Projeção Antecipada
         cols_uteis = colunas_por_tabela[tab]
-        no_atual = projecao(G, tab, cols_uteis, no_atual)
+        no_atual = projecao(G, tab, cols_uteis, no_atual,plano_execucao)
         
         fluxos[tab] = no_atual
 
     # Aplicação da Heurística B (Junções com menor número de tuplas e prevenção de Produto Cartesiano)
     juncoes_pendentes = list(query_data.get("INNER JOIN", []))
-    no_acumulado = juncoes(G, fluxos, juncoes_pendentes, query_data, restricoes_por_tabela)
+    no_acumulado = juncoes(G, fluxos, juncoes_pendentes, query_data, restricoes_por_tabela,plano_execucao)
 
     # 5. PROJEÇÃO FINAL (DISPLAY)
     no_final = "SELECT_FINAL"
     label_final = f"DISPLAY π\n[{', '.join(query_data['SELECT'])}]"
     G.add_node(no_final, label=label_final)
     G.add_edge(no_acumulado, no_final)
+    plano_execucao.append(f"Finalizando consulta com a projeção dos campos: {', '.join(query_data['SELECT'])}")
 
-    return G
+    return G, plano_execucao
 
 def parse_multiplas_queries(tokens):
+
     todas_as_queries = []
     i = 0
     while i < len(tokens):
@@ -557,6 +568,46 @@ def parse_multiplas_queries(tokens):
         todas_as_queries.append(resultado)
         i = proximo_i
     return todas_as_queries
+
+def gerar_algebra_relacional(query_data):
+    """
+    Gera a expressão lógica de álgebra relacional a partir do AST (query_data).
+    Símbolos utilizados:
+    π (Projeção / SELECT)
+    σ (Seleção / WHERE)
+    ⋈ (Junção / INNER JOIN)
+    ∧ (E Lógico / AND)
+    """
+    expressao = query_data.get("FROM", "")
+
+    # 1. INNER JOIN (⋈)
+    joins = query_data.get("INNER JOIN")
+    if joins:
+        for join in joins:
+            on = join["on"]
+            cond_join = f"{on['tabela_left']}.{on['coluna_left']} {on['op']} {on['tabela_right']}.{on['coluna_right']}"
+            expressao = f"({expressao} |X|({cond_join}) {join['table']})"
+
+    # 2. WHERE (Seleção - σ)
+    where = query_data.get("WHERE")
+    if where:
+        conds_str = ""
+        for item in where:
+            if isinstance(item, dict):
+                # Se a tabela foi inferida ou explícita, usa o prefixo
+                prefixo = f"{item['tabela']}." if item.get('tabela') else ""
+                conds_str += f"{prefixo}{item['coluna']} {item['op']} {item['valor']}"
+            elif item == "AND":
+                conds_str += " ∧ " # Troca a string AND pelo operador lógico matemático
+        
+        expressao = f"σ({conds_str})({expressao})"
+
+    # 3. SELECT (Projeção - π)
+    cols = ", ".join(query_data.get("SELECT", []))
+    expressao = f"π({cols})({expressao})"
+
+    return expressao
+
 
 def validar_schema(lista_de_queries, schema_bd):
     # Mapa de busca rápida: {'nome_tabela': ['coluna1', 'coluna2']}

@@ -1,4 +1,4 @@
-from parser import tokenize, parse_multiplas_queries as parse, validar_schema, gerar_grafo_networkx
+from parser import tokenize, parse_multiplas_queries as parse, validar_schema, gerar_grafo_networkx,gerar_algebra_relacional
 from data import bd
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -12,10 +12,7 @@ if __name__ == "__main__":
         "SELECT Nome FROM Produto "
         "WHERE idProduto = 2 AND idProduto = 3;"
         
-        "SELECT Nome, Email FROM Cliente "
-        "INNER JOIN Endereco ON Cliente.idCliente = Endereco.Cliente_idCliente "
-        "INNER JOIN TipoCliente ON Cliente.TipoCliente_idTipoCliente = TipoCliente.idTipoCliente "
-        "WHERE TipoCliente.idTipoCliente = 2;"
+        "SELECT Nome, Email FROM Cliente INNER JOIN Endereco ON Cliente.idCliente = Endereco.Cliente_idCliente INNER JOIN TipoCliente ON Cliente.TipoCliente_idTipoCliente = TipoCliente.idTipoCliente WHERE TipoCliente.idTipoCliente = 2;"
     )
 
     try:
@@ -28,7 +25,11 @@ if __name__ == "__main__":
         
         print(json.dumps(lista_de_queries, indent=2, ensure_ascii=False))
         for idx, query_data in enumerate(lista_de_queries):
-                G = gerar_grafo_networkx(query_data, bd)
+                G, plano = gerar_grafo_networkx(query_data, bd)
+                
+                for i, passo in enumerate(plano, 1):
+                  print(f"{i}. {passo}")
+
                 
                 for node in G.nodes():
 

@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import scrolledtext, messagebox
 import traceback
 import os
-from parser import tokenize, parse_multiplas_queries as parse, validar_schema, gerar_grafo_networkx
+from parser import tokenize, parse_multiplas_queries as parse, validar_schema, gerar_grafo_networkx,gerar_algebra_relacional
 from data import bd
 from pyvis.network import Network
 import json
@@ -24,8 +24,11 @@ def gerar_grafos_html(lista_de_queries, bd):
     for idx, query_data in enumerate(lista_de_queries):
         try:
             # Generate networkx graph
-            G = gerar_grafo_networkx(query_data, bd)
+            G,plano = gerar_grafo_networkx(query_data, bd)
             
+            for i, passo in enumerate(plano, 1):
+                  print(f"{i}. {passo}")
+
             # Configure node styling
             for node in G.nodes():
                 G.nodes[node]['shape'] = 'box'
@@ -187,24 +190,34 @@ class QueryParserGUI:
         self.output_text.delete("1.0", tk.END)
         
         try:
-            self.display_message("🔄 Tokenizando consulta...\n", "info")
+            self.display_message("Tokenizando consulta...\n", "info")
             tokens = tokenize(query)
             self.display_message(f"✓ Tokenização bem-sucedida! {len(tokens)} tokens encontrados\n\n", "success")
             
-            self.display_message("🔄 Analisando consulta...\n", "info")
+            self.display_message("Analisando consulta...\n", "info")
             lista_de_queries = parse(tokens)
             self.display_message(f"✓ Análise bem-sucedida! {len(lista_de_queries)} consulta(s) encontrada(s)\n\n", "success")
             
-            self.display_message("🔄 Validando esquema...\n", "info")
+            self.display_message("Validando esquema...\n", "info")
             validar_schema(lista_de_queries, bd)
-            self.display_message("✓ Validação de esquema bem-sucedida!\n\n", "success")
+
+
             
             # Store queries for later use
             self.lista_de_queries = lista_de_queries
             self.generate_graph_button.config(state=tk.NORMAL)
             
-            self.display_message("📊 Consultas Analisadas:\n", "info")
+            self.display_message("Consultas Analisadas:\n", "info")
             self.output_text.insert(tk.END, json.dumps(lista_de_queries, indent=2, ensure_ascii=False), "info")
+            for idx, query_data in enumerate(lista_de_queries):
+                plano = gerar_grafo_networkx(query_data, bd)[1]
+
+                expressao_algebra = gerar_algebra_relacional(query_data)
+                self.display_message(f"\n\nÁlgebra Relacional:\n{expressao_algebra}\n")
+                
+                for i, passo in enumerate(plano, 1):
+                    self.display_message("\n")
+                    self.display_message(f"\n{i}. {passo}")
             
         except Exception as e:
             self.lista_de_queries = None
@@ -222,11 +235,11 @@ class QueryParserGUI:
         self.output_text.delete("1.0", tk.END)
         
         try:
-            self.display_message("🔄 Gerando gráficos...\n", "info")
+            self.display_message("Gerando gráficos...\n", "info")
             arquivos_gerados = gerar_grafos_html(self.lista_de_queries, bd)
             self.display_message(f"✓ Gráficos gerados com sucesso!\n\n", "success")
             
-            self.display_message("📁 Arquivos gerados:\n", "info")
+            self.display_message("Arquivos gerados:\n", "info")
             for arquivo in arquivos_gerados:
                 self.output_text.insert(tk.END, f"  • {arquivo}\n", "info")
             
