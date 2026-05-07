@@ -12,7 +12,7 @@ if __name__ == "__main__":
         "SELECT Nome FROM Produto "
         "WHERE idProduto = 2 AND idProduto = 3;"
         
-        "SELECT Nome, Email FROM Cliente INNER JOIN Endereco ON Cliente.idCliente = Endereco.Cliente_idCliente INNER JOIN TipoCliente ON Cliente.TipoCliente_idTipoCliente = TipoCliente.idTipoCliente WHERE TipoCliente.idTipoCliente = 2;"
+        "SELECT Nome, Email FROM Cliente INNER JOIN Endereco ON Cliente.idCliente = Endereco.Cliente_idCliente INNER JOIN TipoCliente ON Cliente.TipoCliente_idTipoCliente = TipoCliente.idTipoCliente WHERE TipoCliente.idTipoCliente = 2 INNER JOIN ;"
     )
 
     try:
